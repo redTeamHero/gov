@@ -21,6 +21,7 @@ You must:
 - Be conservative with compliance risks
 
 Output JSON only.
+You MUST respond in valid JSON ONLY. Do not include explanations or markdown.
 """
 
 AUTHORITATIVE_USER_PROMPT = """
@@ -32,27 +33,6 @@ Your tasks:
 3. Decide one: BID, HOLD, or SKIP.
 4. Explain your decision like a government contracts manager.
 """
-
-
-def _decision_schema() -> Dict[str, Any]:
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "rfq_decision",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "decision": {"type": "string", "enum": ["BID", "HOLD", "SKIP"]},
-                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                    "extracted_facts": {"type": "object"},
-                    "rationale": {"type": "string"},
-                    "risks": {"type": "array", "items": {"type": "string"}},
-                    "required_actions": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["decision", "confidence", "rationale"],
-            },
-        },
-    }
 
 
 def _extract_response_text(response: Any) -> str:
@@ -108,8 +88,10 @@ def run_authoritative_llm(pdf_path: Path, model: str = "gpt-4.1") -> Dict[str, A
                 ],
             },
         ],
-        response_format=_decision_schema(),
     )
 
     content_text = _extract_response_text(response)
-    return json.loads(content_text)
+    try:
+        return json.loads(content_text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Authoritative LLM did not return valid JSON.") from exc
