@@ -50,6 +50,7 @@ def _derive_rationale(data: Dict[str, Any]) -> str:
     rationale = _pick_first(
         data,
         [
+            "manager_explanation",
             "decision_rationale",
             "reason",
             "rationale",
@@ -110,8 +111,14 @@ def format_decision_embed(data: Dict[str, Any], filename: str) -> discord.Embed:
 
     embed = discord.Embed(
         title=f"📑 RFQ Analysis: {filename}",
-        description=f"**Decision:** `{decision}`\n{rationale}",
+        description=f"**Decision:** `{decision}`",
         color=color,
+    )
+
+    embed.add_field(
+        name="🧠 Rationale",
+        value=rationale[:1024],
+        inline=False,
     )
 
     embed.add_field(name="📦 Quantity", value=facts["quantity"], inline=True)
