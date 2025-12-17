@@ -14,7 +14,14 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
+
+from gov.decision import (
+    build_decision_context,
+    engine_result_from_analysis,
+    merge_decision,
+    run_llm_advisor,
+)
 
 
 # ------------------------ Data models ------------------------ #
@@ -68,6 +75,7 @@ class ComplianceFlags:
 @dataclass
 class AnalysisResult:
     snapshot: Snapshot
+    compliance_flags: ComplianceFlags
     price_intelligence: PriceIntelligence
     win_probability: WinProbability
     required_actions: List[str]
@@ -599,6 +607,22 @@ def format_output(result: AnalysisResult) -> str:
     return "\n".join(lines)
 
 
+def format_advisor_output(advisor_result: Dict[str, Any]) -> str:
+    merged_decision = advisor_result["final_decision"]
+    llm_output = advisor_result["llm_output"]
+
+    lines = [
+        "🔹 LLM Advisor",
+        f"Final Decision: {merged_decision['final_decision']}",
+        f"Reason: {merged_decision.get('reason', 'No reason provided')}",
+        "",
+        "Advisor structured output (JSON):",
+        json.dumps(llm_output, indent=2),
+    ]
+
+    return "\n".join(lines)
+
+
 # ------------------------ Driver ------------------------ #
 
 
@@ -624,6 +648,7 @@ def analyze_text(text: str) -> AnalysisResult:
 
     return AnalysisResult(
         snapshot=snapshot,
+        compliance_flags=compliance,
         price_intelligence=price_intel,
         win_probability=win,
         required_actions=actions,
@@ -637,6 +662,18 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Analyze a DLA/DIBBS RFQ PDF and produce a bid roadmap.")
     parser.add_argument("file", type=Path, help="Path to the RFQ PDF or text file")
     parser.add_argument("--json", dest="as_json", action="store_true", help="Output JSON instead of formatted text")
+    parser.add_argument(
+        "--with-llm-advisor",
+        dest="with_llm_advisor",
+        action="store_true",
+        help="Call the LLM advisor with the parsed decision context (requires OPENAI_API_KEY)",
+    )
+    parser.add_argument(
+        "--advisor-model",
+        dest="advisor_model",
+        default="gpt-4.1",
+        help="Model name for the LLM advisor (default: gpt-4.1)",
+    )
     args = parser.parse_args(argv)
 
     if not args.file.exists():
@@ -645,9 +682,22 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     text = read_input_text(args.file)
     result = analyze_text(text)
 
+    advisor_payload: Optional[Dict[str, Any]] = None
+    if args.with_llm_advisor:
+        engine_result = engine_result_from_analysis(result)
+        decision_context = build_decision_context(engine_result)
+        llm_output = run_llm_advisor(decision_context, model=args.advisor_model)
+        merged_decision = merge_decision(engine_result, llm_output)
+        advisor_payload = {
+            "decision_context": decision_context,
+            "llm_output": llm_output,
+            "final_decision": merged_decision,
+        }
+
     if args.as_json:
         output = {
             "snapshot": asdict(result.snapshot),
+            "compliance_flags": asdict(result.compliance_flags),
             "price_intelligence": asdict(result.price_intelligence),
             "win_probability": asdict(result.win_probability),
             "required_actions": result.required_actions,
@@ -655,9 +705,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             "templates": result.templates,
             "automation_fields": result.automation_fields,
         }
+        if advisor_payload:
+            output["llm_advisor"] = advisor_payload
         print(json.dumps(output, indent=2))
     else:
         print(format_output(result))
+        if advisor_payload:
+            print()
+            print(format_advisor_output(advisor_payload))
 
 
 if __name__ == "__main__":
