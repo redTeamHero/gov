@@ -135,7 +135,19 @@ def _normalize_set_aside(raw_value: str, text: str) -> str:
 
 
 def _parse_clin_quantity(text: str) -> Optional[str]:
-    return _first_match(
+    def _scan_line_window() -> Optional[str]:
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        for idx, line in enumerate(lines):
+            if re.search(r"\bCLIN\s+0*0*1\b", line, re.IGNORECASE) or re.search(
+                r"\bPRLI\s+0*0*1\b", line, re.IGNORECASE
+            ) or re.search(r"\bItem\s*0*0*1\b", line, re.IGNORECASE):
+                window = " ".join(lines[idx : idx + 6])
+                match = re.search(r"(?:QTY|QUANTITY)[:\s]+([0-9,]+)", window, re.IGNORECASE)
+                if match:
+                    return match.group(1)
+        return None
+
+    direct_match = _first_match(
         text,
         [
             r"CLIN\s+0*0*1[^\n]{0,120}?(?:QTY|QUANTITY)[:\s]+([0-9,]+)",
@@ -143,6 +155,8 @@ def _parse_clin_quantity(text: str) -> Optional[str]:
             r"Item\s*0001[^\n]{0,120}?(?:QTY|QUANTITY)[:\s]+([0-9,]+)",
         ],
     )
+
+    return direct_match or _scan_line_window()
 
 
 def _combine_delivery_fields(primary: str, need_ship: Optional[str], rdd: Optional[str]) -> str:
@@ -255,7 +269,7 @@ def parse_snapshot(text: str) -> Snapshot:
     )
 
 
-def parse_price_history(text: str) -> PriceIntelligence:
+def parse_price_history(text: str, rfq_quantity: Optional[str] = None) -> PriceIntelligence:
     def _median(values: List[float]) -> float:
         sorted_vals = sorted(values)
         mid = len(sorted_vals) // 2
@@ -263,40 +277,69 @@ def parse_price_history(text: str) -> PriceIntelligence:
             return sorted_vals[mid]
         return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2
 
+    def _extract_procurement_history(text_block: str) -> List[tuple[int, float]]:
+        start = text_block.lower().find("procurement history")
+        scoped = text_block[start : start + 3000] if start != -1 else text_block
+        entries: List[tuple[int, float]] = []
+        for line in scoped.splitlines():
+            if not re.search(r"\d", line):
+                continue
+            for match in re.finditer(
+                r"(?P<qty>\d{1,4})\s+[A-Z]*\s*\$?(?P<price>\d{1,3}\.\d{2})", line, flags=re.IGNORECASE
+            ):
+                qty = int(match.group("qty"))
+                price = float(match.group("price"))
+                if price < 500:
+                    entries.append((qty, price))
+        return entries
+
     raw_prices: List[float] = []
     unit_price_candidates: List[float] = []
+    structured_history = _extract_procurement_history(text)
 
-    for match in re.finditer(
-        r"(?P<qty>\d{1,4})\s*(?:EA|Each|PG|KT|BX)?[^\n]{0,25}?\$\s*(?P<amount>[0-9]{1,9}(?:\.[0-9]{2})?)",
-        text,
-        flags=re.IGNORECASE,
-    ):
-        qty = int(match.group("qty"))
-        amount = float(match.group("amount").replace(",", ""))
-        raw_prices.append(amount)
-        if amount < 500:
-            unit_price_candidates.append(amount)
-        else:
-            unit_estimate = amount / max(qty, 1)
-            if unit_estimate < 500:
-                unit_price_candidates.append(round(unit_estimate, 2))
+    current_qty: Optional[int] = None
+    try:
+        if rfq_quantity:
+            current_qty = int(rfq_quantity.replace(",", ""))
+    except ValueError:
+        current_qty = None
 
-    currency_only_matches = [
-        float(p.replace(",", "")) for p in re.findall(r"\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.\d{2})?)", text)
-    ]
-    for price in currency_only_matches:
-        raw_prices.append(price)
-        if price < 500:
-            unit_price_candidates.append(price)
+    if not structured_history:
+        for match in re.finditer(
+            r"(?P<qty>\d{1,4})\s*(?:EA|Each|PG|KT|BX)?[^\n]{0,25}?\$\s*(?P<amount>[0-9]{1,9}(?:\.\d{2})?)",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            qty = int(match.group("qty"))
+            amount = float(match.group("amount").replace(",", ""))
+            raw_prices.append(amount)
+            if amount < 500:
+                unit_price_candidates.append(amount)
+            else:
+                unit_estimate = amount / max(qty, 1)
+                if unit_estimate < 500:
+                    unit_price_candidates.append(round(unit_estimate, 2))
 
-    seen: set[float] = set()
-    deduped_units: List[float] = []
-    for price in unit_price_candidates:
-        if price not in seen:
-            deduped_units.append(price)
-            seen.add(price)
+        currency_only_matches = [
+            float(p.replace(",", "")) for p in re.findall(r"\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.\d{2})?)", text)
+        ]
+        for price in currency_only_matches:
+            raw_prices.append(price)
+            if price < 500:
+                unit_price_candidates.append(price)
 
-    history: Optional[List[float]] = deduped_units or (raw_prices if raw_prices else None)
+        seen: set[float] = set()
+        deduped_units: List[float] = []
+        for price in unit_price_candidates:
+            if price not in seen:
+                deduped_units.append(price)
+                seen.add(price)
+
+        history = deduped_units or (raw_prices if raw_prices else None)
+        history_quantities: Optional[List[tuple[int, float]]] = None
+    else:
+        history = [price for _, price in structured_history]
+        history_quantities = structured_history
 
     historical_low = f"${min(history):,.2f}" if history else "Not stated in RFQ"
     historical_high = f"${max(history):,.2f}" if history else "Not stated in RFQ"
@@ -304,10 +347,23 @@ def parse_price_history(text: str) -> PriceIntelligence:
 
     recommended_bid_price = "Not enough data"
     if history:
-        target = _median(history)
-        low = round(target * 0.98, 2)
-        high = round(target * 1.04, 2)
+        focus_prices: List[float]
+        if history_quantities and current_qty is not None:
+            sorted_by_proximity = sorted(history_quantities, key=lambda qp: abs(qp[0] - current_qty))
+            focus = sorted_by_proximity[: max(3, min(5, len(sorted_by_proximity)))]
+            focus_prices = [p for _, p in focus]
+        else:
+            focus_prices = history
+
+        target = _median(focus_prices)
+        band = 0.035
+        low = round(target * (1 - band), 2)
+        high = round(target * (1 + band), 2)
         recommended_bid_price = f"${low:,.2f} - ${high:,.2f}"
+        if history:
+            median_full = _median(history)
+            if high > median_full * 1.25:
+                recommended_bid_price += " (trimmed for historical alignment)"
 
     return PriceIntelligence(
         historical_low=historical_low,
@@ -345,12 +401,12 @@ def compute_viability(
         if max(price.history_prices) > 0:
             volatility = spread / max(price.history_prices)
             if volatility < 0.15:
-                score += 8
+                score += 6
                 rationale_parts.append("Stable historical pricing window.")
             elif volatility > 0.35:
                 score -= 5
                 rationale_parts.append("Pricing shows high volatility.")
-        score += 5
+        score += 4
         rationale_parts.append("Price history available for targeting.")
     else:
         rationale_parts.append("No price history found; more market research needed.")
@@ -358,7 +414,7 @@ def compute_viability(
     try:
         qty_value = int(snapshot.quantity.replace(",", ""))
         if qty_value <= 50:
-            score += 5
+            score += 4
             rationale_parts.append("Manageable quantity supports quick delivery.")
         elif qty_value >= 500:
             score -= 5
@@ -380,14 +436,16 @@ def compute_viability(
         rationale_parts.append("FDT applies; include transportation in price.")
 
     if snapshot.automated_award == "Eligible":
-        score += 5
+        score += 4
         rationale_parts.append("Eligible for automated award/fast pay.")
 
     score = max(0, min(100, score))
 
-    if score >= 75:
-        recommendation = "✅ Bid"
-    elif score >= 55:
+    if score >= 80:
+        recommendation = "✅ Bid – High Confidence"
+    elif score >= 65:
+        recommendation = "✅ Bid – Moderate Competition"
+    elif score >= 50:
         recommendation = "⚠️ Bid With Caution"
     else:
         recommendation = "❌ Skip"
@@ -541,7 +599,7 @@ def format_output(result: AnalysisResult) -> str:
 
 def analyze_text(text: str) -> AnalysisResult:
     snapshot = parse_snapshot(text)
-    price_intel = parse_price_history(text)
+    price_intel = parse_price_history(text, snapshot.quantity)
     compliance = parse_compliance_flags(text)
     win = compute_viability(snapshot, price_intel, compliance)
     actions = build_required_actions(snapshot, compliance)
