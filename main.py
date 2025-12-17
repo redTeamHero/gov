@@ -117,6 +117,43 @@ def _first_match(text: str, patterns: Sequence[str]) -> Optional[str]:
     return None
 
 
+def _normalize_set_aside(raw_value: str, text: str) -> str:
+    normalized = raw_value
+    if re.search(r"cert\.?\s*for\s*nat\.?\s*def", text, re.IGNORECASE):
+        normalized = "Full & Open (National Defense Priority)"
+    elif re.search(r"full\s+and\s+open", text, re.IGNORECASE):
+        normalized = "Full & Open"
+
+    if re.search(r"HUBZone price (evaluation )?preference", text, re.IGNORECASE):
+        suffix = " with HUBZone price preference"
+        if normalized != "Not stated in RFQ" and suffix not in normalized:
+            normalized = f"{normalized}{suffix}"
+        elif normalized == "Not stated in RFQ":
+            normalized = f"Full & Open{suffix}"
+
+    return normalized
+
+
+def _parse_clin_quantity(text: str) -> Optional[str]:
+    return _first_match(
+        text,
+        [
+            r"CLIN\s+0*0*1[^\n]{0,120}?(?:QTY|QUANTITY)[:\s]+([0-9,]+)",
+            r"PRLI\s+0*0*1[^\n]{0,120}?(?:QTY|QUANTITY)[:\s]+([0-9,]+)",
+            r"Item\s*0001[^\n]{0,120}?(?:QTY|QUANTITY)[:\s]+([0-9,]+)",
+        ],
+    )
+
+
+def _combine_delivery_fields(primary: str, need_ship: Optional[str], rdd: Optional[str]) -> str:
+    parts = [primary] if primary != "Not stated in RFQ" else []
+    if need_ship:
+        parts.append(f"Need Ship Date: {need_ship}")
+    if rdd:
+        parts.append(f"Original RDD: {rdd}")
+    return " | ".join(parts) if parts else "Not stated in RFQ"
+
+
 def parse_snapshot(text: str) -> Snapshot:
     rfq_number = _first_match(
         text,
@@ -135,7 +172,7 @@ def parse_snapshot(text: str) -> Snapshot:
         ],
     ) or "Not stated in RFQ"
 
-    quantity = _first_match(
+    quantity = _parse_clin_quantity(text) or _first_match(
         text,
         [
             r"(?:Quantity|QTY)[:#\s]+([0-9,]+)\b",
@@ -143,22 +180,27 @@ def parse_snapshot(text: str) -> Snapshot:
         ],
     ) or "Not stated in RFQ"
 
-    delivery_requirement = _first_match(
+    delivery_requirement_raw = _first_match(
         text,
         [
             r"Required Delivery(?: Date)?[:#\s]+([^\n]+)",
             r"Delivery\s+within\s+([^\n]+)",
             r"\b(\d{1,3}\s*days\s*(?:ARO|ADC|ADO))\b",
+            r"Delivery\s+required[:\s]+(\d{1,3}\s*days\s*(?:ARO|ADC|ADO))",
         ],
     ) or "Not stated in RFQ"
+    need_ship_date = _first_match(text, [r"Need Ship Date[:#\s]+([0-9/]{6,10})"])
+    rdd = _first_match(text, [r"Original RDD[:#\s]+([0-9/]{6,10})"])
+    delivery_requirement = _combine_delivery_fields(delivery_requirement_raw, need_ship_date, rdd)
 
-    set_aside_status = _first_match(
+    set_aside_status_raw = _first_match(
         text,
         [
             r"Set[- ]Aside[:#\s]+([^\n]+)",
             r"\b(Set ?Aside: ?(?:Small Business|Total SB|8\(a\)|SDVOSB|WOSB|HUBZone|Full and Open))",
         ],
     ) or "Not stated in RFQ"
+    set_aside_status = _normalize_set_aside(set_aside_status_raw, text)
 
     naics = _first_match(text, [r"NAICS[:#\s]+(\d{5,6})"]) or "Not stated in RFQ"
 
@@ -214,23 +256,57 @@ def parse_snapshot(text: str) -> Snapshot:
 
 
 def parse_price_history(text: str) -> PriceIntelligence:
-    price_matches = re.findall(r"\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.\d{2})?)", text)
-    prices = [float(p.replace(",", "")) for p in price_matches]
+    def _median(values: List[float]) -> float:
+        sorted_vals = sorted(values)
+        mid = len(sorted_vals) // 2
+        if len(sorted_vals) % 2:
+            return sorted_vals[mid]
+        return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2
 
-    historical_low: str = "Not stated in RFQ"
-    historical_high: str = "Not stated in RFQ"
-    most_recent_award: str = "Not stated in RFQ"
+    raw_prices: List[float] = []
+    unit_price_candidates: List[float] = []
 
-    if prices:
-        historical_low = f"${min(prices):,.2f}"
-        historical_high = f"${max(prices):,.2f}"
-        most_recent_award = f"${prices[-1]:,.2f}"
+    for match in re.finditer(
+        r"(?P<qty>\d{1,4})\s*(?:EA|Each|PG|KT|BX)?[^\n]{0,25}?\$\s*(?P<amount>[0-9]{1,9}(?:\.[0-9]{2})?)",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        qty = int(match.group("qty"))
+        amount = float(match.group("amount").replace(",", ""))
+        raw_prices.append(amount)
+        if amount < 500:
+            unit_price_candidates.append(amount)
+        else:
+            unit_estimate = amount / max(qty, 1)
+            if unit_estimate < 500:
+                unit_price_candidates.append(round(unit_estimate, 2))
+
+    currency_only_matches = [
+        float(p.replace(",", "")) for p in re.findall(r"\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.\d{2})?)", text)
+    ]
+    for price in currency_only_matches:
+        raw_prices.append(price)
+        if price < 500:
+            unit_price_candidates.append(price)
+
+    seen: set[float] = set()
+    deduped_units: List[float] = []
+    for price in unit_price_candidates:
+        if price not in seen:
+            deduped_units.append(price)
+            seen.add(price)
+
+    history: Optional[List[float]] = deduped_units or (raw_prices if raw_prices else None)
+
+    historical_low = f"${min(history):,.2f}" if history else "Not stated in RFQ"
+    historical_high = f"${max(history):,.2f}" if history else "Not stated in RFQ"
+    most_recent_award = f"${history[-1]:,.2f}" if history else "Not stated in RFQ"
 
     recommended_bid_price = "Not enough data"
-    if prices:
-        target = prices[-1]
-        low = round(target * 0.97, 2)
-        high = round(target * 1.01, 2)
+    if history:
+        target = _median(history)
+        low = round(target * 0.98, 2)
+        high = round(target * 1.04, 2)
         recommended_bid_price = f"${low:,.2f} - ${high:,.2f}"
 
     return PriceIntelligence(
@@ -238,7 +314,7 @@ def parse_price_history(text: str) -> PriceIntelligence:
         historical_high=historical_high,
         most_recent_award=most_recent_award,
         recommended_bid_price=recommended_bid_price,
-        history_prices=prices or None,
+        history_prices=history,
     )
 
 
