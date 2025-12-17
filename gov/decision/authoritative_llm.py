@@ -90,7 +90,7 @@ def run_authoritative_llm(pdf_path: Path, model: str = "gpt-4.1") -> Dict[str, A
     client = OpenAI(api_key=api_key)
 
     with pdf_path.open("rb") as pdf_file:
-        uploaded_file = client.files.create(file=("rfq.pdf", pdf_file), purpose="assistants")
+        uploaded_file = client.files.create(file=pdf_file, purpose="assistants")
 
     response = client.responses.create(
         model=model,
