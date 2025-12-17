@@ -141,7 +141,7 @@ def _parse_clin_quantity(text: str) -> Optional[str]:
             if re.search(r"\bCLIN\s+0*0*1\b", line, re.IGNORECASE) or re.search(
                 r"\bPRLI\s+0*0*1\b", line, re.IGNORECASE
             ) or re.search(r"\bItem\s*0*0*1\b", line, re.IGNORECASE):
-                window = " ".join(lines[idx : idx + 6])
+                window = " ".join(lines[idx : idx + 10])
                 match = re.search(r"(?:QTY|QUANTITY)[:\s]+([0-9,]+)", window, re.IGNORECASE)
                 if match:
                     return match.group(1)
@@ -150,9 +150,10 @@ def _parse_clin_quantity(text: str) -> Optional[str]:
     direct_match = _first_match(
         text,
         [
-            r"CLIN\s+0*0*1[^\n]{0,120}?(?:QTY|QUANTITY)[:\s]+([0-9,]+)",
-            r"PRLI\s+0*0*1[^\n]{0,120}?(?:QTY|QUANTITY)[:\s]+([0-9,]+)",
-            r"Item\s*0001[^\n]{0,120}?(?:QTY|QUANTITY)[:\s]+([0-9,]+)",
+            r"CLIN\s+0*0*1[\s\S]{0,350}?(?:QTY|QUANTITY)[:\s]+([0-9,]+)",
+            r"PRLI\s+0*0*1[\s\S]{0,350}?(?:QTY|QUANTITY)[:\s]+([0-9,]+)",
+            r"Item\s*0001[\s\S]{0,350}?(?:QTY|QUANTITY)[:\s]+([0-9,]+)",
+            r"\bQUANTITY[:\s]+([0-9,]+)\b",
         ],
     )
 
@@ -289,7 +290,7 @@ def parse_price_history(text: str, rfq_quantity: Optional[str] = None) -> PriceI
             ):
                 qty = int(match.group("qty"))
                 price = float(match.group("price"))
-                if price < 500:
+                if price <= 200:
                     entries.append((qty, price))
         return entries
 
@@ -306,26 +307,26 @@ def parse_price_history(text: str, rfq_quantity: Optional[str] = None) -> PriceI
 
     if not structured_history:
         for match in re.finditer(
-            r"(?P<qty>\d{1,4})\s*(?:EA|Each|PG|KT|BX)?[^\n]{0,25}?\$\s*(?P<amount>[0-9]{1,9}(?:\.\d{2})?)",
+            r"(?P<qty>\d{1,4})\s*(?:EA|Each|PG|KT|BX)?[^\n]{0,25}?\$\s*(?P<amount>[0-9]{1,3}(?:\.\d{2})?)",
             text,
             flags=re.IGNORECASE,
         ):
             qty = int(match.group("qty"))
             amount = float(match.group("amount").replace(",", ""))
-            raw_prices.append(amount)
-            if amount < 500:
+            if amount <= 200:
+                raw_prices.append(amount)
                 unit_price_candidates.append(amount)
             else:
                 unit_estimate = amount / max(qty, 1)
-                if unit_estimate < 500:
+                if unit_estimate <= 200:
                     unit_price_candidates.append(round(unit_estimate, 2))
 
         currency_only_matches = [
-            float(p.replace(",", "")) for p in re.findall(r"\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.\d{2})?)", text)
+            float(p.replace(",", "")) for p in re.findall(r"\$\s*([0-9]{1,3}(?:,[0-9]{3})*\.\d{2})", text)
         ]
         for price in currency_only_matches:
-            raw_prices.append(price)
-            if price < 500:
+            if price <= 200:
+                raw_prices.append(price)
                 unit_price_candidates.append(price)
 
         seen: set[float] = set()
@@ -400,11 +401,11 @@ def compute_viability(
         spread = max(price.history_prices) - min(price.history_prices)
         if max(price.history_prices) > 0:
             volatility = spread / max(price.history_prices)
-            if volatility < 0.15:
+            if volatility < 0.2:
                 score += 6
                 rationale_parts.append("Stable historical pricing window.")
-            elif volatility > 0.35:
-                score -= 5
+            elif volatility > 0.45:
+                score -= 3
                 rationale_parts.append("Pricing shows high volatility.")
         score += 4
         rationale_parts.append("Price history available for targeting.")
@@ -419,8 +420,12 @@ def compute_viability(
         elif qty_value >= 500:
             score -= 5
             rationale_parts.append("High quantity may stress supply chain.")
+        else:
+            score += 3
+            rationale_parts.append("Known production lot size aligns with historical buys.")
     except ValueError:
-        rationale_parts.append("Quantity not explicit.")
+        score -= 6
+        rationale_parts.append("Quantity not explicit; probability reduced until parsed.")
 
     if compliance.cyber:
         score -= 7
