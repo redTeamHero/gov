@@ -20,6 +20,7 @@ from gov.decision import (
     build_decision_context,
     engine_result_from_analysis,
     merge_decision,
+    run_authoritative_llm,
     run_llm_advisor,
 )
 
@@ -674,10 +675,30 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         default="gpt-4.1",
         help="Model name for the LLM advisor (default: gpt-4.1)",
     )
+    parser.add_argument(
+        "--authoritative-llm",
+        dest="authoritative_llm",
+        action="store_true",
+        help="Route decision to authoritative LLM reading the raw PDF (requires OPENAI_API_KEY)",
+    )
+    parser.add_argument(
+        "--authoritative-model",
+        dest="authoritative_model",
+        default="gpt-4.1",
+        help="Model name for the authoritative LLM (default: gpt-4.1)",
+    )
     args = parser.parse_args(argv)
 
     if not args.file.exists():
         raise SystemExit(f"Input file not found: {args.file}")
+
+    if args.authoritative_llm and args.with_llm_advisor:
+        raise SystemExit("--authoritative-llm cannot be combined with --with-llm-advisor")
+
+    if args.authoritative_llm:
+        authoritative_result = run_authoritative_llm(args.file, model=args.authoritative_model)
+        print(json.dumps(authoritative_result, indent=2))
+        return
 
     text = read_input_text(args.file)
     result = analyze_text(text)
