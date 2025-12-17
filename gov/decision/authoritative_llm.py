@@ -152,18 +152,17 @@ def _normalize_packaging(packaging: Any) -> Dict[str, str]:
     if isinstance(packaging, dict):
         for key in merged:
             value = packaging.get(key)
-            if value is not None:
-                merged[key] = str(value)
-    elif packaging is not None:
+            merged[key] = str(value) if value else merged[key]
+    elif packaging:
         merged["other"] = str(packaging)
     return merged
 
 
 def _ensure_list(value: Any) -> List[str]:
-    if value is None:
+    if not value:
         return []
     if isinstance(value, list):
-        return [str(item) for item in value if item is not None]
+        return [str(item) for item in value if item]
     return [str(value)]
 
 
@@ -177,7 +176,7 @@ def _apply_schema_defaults(raw: Dict[str, Any]) -> Dict[str, Any]:
             key_facts[field] = _ensure_list(key_facts_raw.get(field))
         else:
             value = key_facts_raw.get(field) if isinstance(key_facts_raw, dict) else None
-            key_facts[field] = str(value) if value is not None else default
+            key_facts[field] = str(value) if value else default
 
     risk_raw = raw.get("bid_risk_and_compliance_exposure") if isinstance(
         raw.get("bid_risk_and_compliance_exposure"), dict
@@ -185,14 +184,14 @@ def _apply_schema_defaults(raw: Dict[str, Any]) -> Dict[str, Any]:
     risks: Dict[str, Any] = {}
     for field, default in DEFAULT_RISK_EXPOSURE.items():
         value = risk_raw.get(field) if isinstance(risk_raw, dict) else None
-        risks[field] = str(value) if value is not None else default
+        risks[field] = str(value) if value else default
 
     normalized = {
         "key_facts": key_facts,
         "bid_risk_and_compliance_exposure": risks,
-        "decision": str(raw.get("decision")) if raw.get("decision") is not None else "Not stated in RFQ",
+        "decision": str(raw.get("decision")) if raw.get("decision") else "Not stated in RFQ",
         "manager_explanation": str(raw.get("manager_explanation"))
-        if raw.get("manager_explanation") is not None
+        if raw.get("manager_explanation")
         else "Not stated in RFQ",
     }
     return normalized
