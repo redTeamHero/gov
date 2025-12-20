@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import subprocess
+import traceback
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 from uuid import uuid4
@@ -190,6 +191,22 @@ def run_analysis(pdf_path: Path) -> Dict[str, Any]:
         raise RuntimeError(f"Engine returned non-JSON output: {completed.stdout[:500]}") from exc
 
 
+def _build_discord_error_message(exc: Exception) -> str:
+    error_text = str(exc)
+    lower_text = error_text.lower()
+    if "internalservererror" in lower_text or "error code 520" in lower_text or "cloudflare" in lower_text:
+        return (
+            "⚠️ AI service temporarily unavailable (Cloudflare 520).\n"
+            "Please retry in 1–2 minutes."
+        )
+
+    max_length = 3500
+    if len(error_text) > max_length:
+        error_text = f"{error_text[:max_length]}\n... [truncated]"
+
+    return f"❌ Error processing RFQ:\n```{error_text}```"
+
+
 @client.event
 async def on_ready():
     print(f"🤖 Logged in as {client.user}")
@@ -233,7 +250,8 @@ async def on_message(message: discord.Message):
     except subprocess.TimeoutExpired:
         await message.channel.send("❌ Analysis timed out. Please try again with a smaller file.")
     except Exception as exc:  # pylint: disable=broad-except
-        await message.channel.send(f"❌ Error processing RFQ:\n```{exc}```")
+        traceback.print_exc()
+        await message.channel.send(_build_discord_error_message(exc))
     finally:
         if pdf_path.exists():
             pdf_path.unlink(missing_ok=True)
