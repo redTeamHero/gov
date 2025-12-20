@@ -1,0 +1,15 @@
+{
+  "mock_data": true,
+  "rfq_number": "SPE4A6-24-Q-1234",
+  "nsn": "1234-56-789-0123",
+  "part_number": "PN-1000",
+  "item_name": "Widget Assembly",
+  "quantity": 50,
+  "requirements": {
+    "qpl_required": "Yes",
+    "coqc_required": "Yes",
+    "critical_application_item": "Yes",
+    "fob": "Origin",
+    "days_aro": 45
+  }
+}
