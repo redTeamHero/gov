@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import discord
 
 from gov.discord.checklist_state import CHECKLIST_STATE
@@ -44,27 +42,13 @@ async def run_document_generation(interaction: discord.Interaction, rfq_id: str)
         )
         return
 
-    base_output_dir = Path("/tmp/gov_documents")
     files = []
 
     if state.get("quote"):
-        files.append(
-            generate_quote_pdf(
-                rfq_payload,
-                supplier_payload,
-                pricing_payload,
-                output_dir=base_output_dir / "quotes",
-            )
-        )
+        files.append(generate_quote_pdf(rfq_payload, supplier_payload, pricing_payload))
 
     if state.get("traceability"):
-        files.append(
-            generate_traceability_pdf(
-                rfq_payload,
-                supplier_payload,
-                output_dir=base_output_dir / "traceability",
-            )
-        )
+        files.append(generate_traceability_pdf(rfq_payload, supplier_payload))
 
     await interaction.response.send_message(
         content="📄 Documents generated:",

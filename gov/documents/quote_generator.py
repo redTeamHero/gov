@@ -63,15 +63,3 @@ def generate_traceability_pdf(rfq, supplier):
     c.showPage()
     c.save()
     return str(output_path)
-
-
-def generate_documents(rfq, supplier, pricing):
-    quote_path = generate_quote_pdf(rfq, supplier, pricing)
-    traceability_path = generate_traceability_pdf(rfq, supplier)
-    return {
-        "quote_pdf": quote_path,
-        "traceability_pdf": traceability_path,
-    }
-
-
-__all__ = ["generate_quote_pdf", "generate_traceability_pdf", "generate_documents"]
