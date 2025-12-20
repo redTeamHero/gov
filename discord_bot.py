@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, List
 from uuid import uuid4
 
 import discord
+from discord import ui
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,6 +20,8 @@ intents.message_content = True
 intents.messages = True
 
 client = discord.Client(intents=intents)
+
+user_sessions: Dict[int, Dict[str, Any]] = {}
 
 
 def _pick_first(source: Dict[str, Any], keys: Iterable[str]) -> Any:
@@ -95,6 +98,124 @@ def _derive_risks(data: Dict[str, Any]) -> List[str]:
     if isinstance(raw_risks, list):
         return [str(item) for item in raw_risks if item]
     return []
+
+
+def _derive_hold_resolution_checklist(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    checklist = data.get("hold_resolution_checklist")
+    if isinstance(checklist, list):
+        return [item for item in checklist if isinstance(item, dict)]
+    return []
+
+
+def _normalize_hold_checklist(checklist: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized = []
+    for item in checklist:
+        question = item.get("question")
+        if not question:
+            continue
+        blocking = item.get("blocking")
+        if blocking is None:
+            blocking = item.get("blocks_bid_if_no")
+        normalized.append(
+            {
+                "id": str(item.get("id") or question).lower().replace(" ", "_"),
+                "question": str(question),
+                "blocking": bool(blocking),
+            }
+        )
+    return normalized
+
+
+def _extract_rfq_id(data: Dict[str, Any]) -> str:
+    key_facts = data.get("key_facts") or {}
+    return str(key_facts.get("rfq_number") or data.get("rfq_number") or "Unknown RFQ")
+
+
+class HoldResolutionView(ui.View):
+    def __init__(self, user_id: int, timeout: int = 900) -> None:
+        super().__init__(timeout=timeout)
+        self.user_id = user_id
+
+    async def _handle_answer(self, interaction: discord.Interaction, answer: bool) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "This checklist belongs to another user.", ephemeral=True
+            )
+            return
+
+        session = user_sessions.get(self.user_id)
+        if not session:
+            await interaction.response.send_message(
+                "This HOLD resolution session has expired.", ephemeral=True
+            )
+            return
+
+        idx = session["current_index"]
+        checklist = session["checklist"]
+        if idx >= len(checklist):
+            await interaction.response.send_message("No more checklist items.", ephemeral=True)
+            return
+
+        question = checklist[idx]
+        session["answers"][question["id"]] = answer
+        session["current_index"] += 1
+
+        if session["current_index"] < len(checklist):
+            next_question = checklist[session["current_index"]]
+            await interaction.response.send_message(
+                _format_hold_question_message(session, next_question),
+                view=HoldResolutionView(self.user_id),
+            )
+            return
+
+        blocking_failures = [
+            item
+            for item in checklist
+            if item["blocking"] and session["answers"].get(item["id"]) is False
+        ]
+
+        if not blocking_failures:
+            lines = [
+                "🔥 DECISION UPGRADED: BID (CONDITIONAL)",
+                "",
+                "You meet all blocking compliance requirements:",
+            ]
+            for item in checklist:
+                if item["blocking"]:
+                    lines.append(f"• {item['question']} ✔️")
+            lines.append("")
+            lines.append("Proceed to pricing and supplier validation.")
+            await interaction.response.send_message("\n".join(lines))
+        else:
+            lines = [
+                "⛔ DECISION REMAINS: HOLD",
+                "",
+                "Blocking compliance gaps detected:",
+            ]
+            for item in blocking_failures:
+                lines.append(f"• {item['question']}")
+            lines.append("")
+            lines.append("Resolve these items before bidding.")
+            await interaction.response.send_message("\n".join(lines))
+
+        user_sessions.pop(self.user_id, None)
+
+    @ui.button(label="✅ Yes", style=discord.ButtonStyle.success, custom_id="hold_yes")
+    async def yes_button(self, interaction: discord.Interaction, button: ui.Button) -> None:
+        await self._handle_answer(interaction, True)
+
+    @ui.button(label="❌ No", style=discord.ButtonStyle.danger, custom_id="hold_no")
+    async def no_button(self, interaction: discord.Interaction, button: ui.Button) -> None:
+        await self._handle_answer(interaction, False)
+
+
+def _format_hold_question_message(session: Dict[str, Any], item: Dict[str, Any]) -> str:
+    current = session["current_index"] + 1
+    total = len(session["checklist"])
+    return (
+        f"🔁 HOLD Resolution Question {current}/{total}\n\n"
+        f"{item['question']}"
+    )
 
 
 def format_decision_embed(data: Dict[str, Any], filename: str) -> discord.Embed:
@@ -193,6 +314,19 @@ async def on_message(message: discord.Message):
     try:
         data = await asyncio.to_thread(run_analysis, pdf_path)
         await message.channel.send(embed=format_decision_embed(data, attachment.filename))
+        checklist = _normalize_hold_checklist(_derive_hold_resolution_checklist(data))
+        if _derive_decision(data) == "HOLD" and checklist:
+            user_sessions[message.author.id] = {
+                "rfq_id": _extract_rfq_id(data),
+                "checklist": checklist,
+                "current_index": 0,
+                "answers": {},
+            }
+            first_question = checklist[0]
+            await message.channel.send(
+                _format_hold_question_message(user_sessions[message.author.id], first_question),
+                view=HoldResolutionView(message.author.id),
+            )
     except subprocess.TimeoutExpired:
         await message.channel.send("❌ Analysis timed out. Please try again with a smaller file.")
     except Exception as exc:  # pylint: disable=broad-except

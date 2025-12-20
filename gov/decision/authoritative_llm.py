@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
+from gov.decision.hold_resolution import build_hold_resolution_checklist_for_authoritative
 AUTHORITATIVE_SYSTEM_PROMPT = """
 You are a senior U.S. government contracts analyst.
 
@@ -242,4 +243,11 @@ def run_authoritative_llm(pdf_path: Path, model: str = "gpt-4.1") -> Dict[str, A
     if not isinstance(parsed, dict):
         raise RuntimeError("Authoritative LLM did not return a JSON object.")
 
-    return _apply_schema_defaults(parsed)
+    normalized = _apply_schema_defaults(parsed)
+    checklist = build_hold_resolution_checklist_for_authoritative(normalized)
+    if checklist:
+        normalized["hold_resolution_checklist"] = checklist
+        normalized["hold_resolution_rule"] = (
+            "Answer YES to all blocking items to upgrade HOLD to BID (Conditional)."
+        )
+    return normalized
