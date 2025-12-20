@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, List
 from uuid import uuid4
 
 import discord
+from discord import ui
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,6 +20,8 @@ intents.message_content = True
 intents.messages = True
 
 client = discord.Client(intents=intents)
+
+user_sessions: Dict[int, Dict[str, Any]] = {}
 
 
 def _pick_first(source: Dict[str, Any], keys: Iterable[str]) -> Any:
@@ -214,6 +217,19 @@ async def on_message(message: discord.Message):
     try:
         data = await asyncio.to_thread(run_analysis, pdf_path)
         await message.channel.send(embed=format_decision_embed(data, attachment.filename))
+        checklist = _normalize_hold_checklist(_derive_hold_resolution_checklist(data))
+        if _derive_decision(data) == "HOLD" and checklist:
+            user_sessions[message.author.id] = {
+                "rfq_id": _extract_rfq_id(data),
+                "checklist": checklist,
+                "current_index": 0,
+                "answers": {},
+            }
+            first_question = checklist[0]
+            await message.channel.send(
+                _format_hold_question_message(user_sessions[message.author.id], first_question),
+                view=HoldResolutionView(message.author.id),
+            )
     except subprocess.TimeoutExpired:
         await message.channel.send("❌ Analysis timed out. Please try again with a smaller file.")
     except Exception as exc:  # pylint: disable=broad-except
