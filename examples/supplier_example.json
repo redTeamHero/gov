@@ -1,0 +1,13 @@
+{
+  "mock_data": true,
+  "company_name": "Example Supplier LLC",
+  "cage": "1A2B3",
+  "role": "authorized_distributor",
+  "authorized_distributor": true,
+  "manufacturer_traceability": true,
+  "manufacturer_name": "Example Manufacturer Inc.",
+  "distributor_name": "Example Supplier LLC",
+  "address": "100 Example Ave, Arlington, VA 22201",
+  "phone": "555-0100",
+  "email": "contracts@example.com"
+}
