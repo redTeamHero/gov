@@ -108,6 +108,114 @@ def _derive_hold_resolution_checklist(data: Dict[str, Any]) -> List[Dict[str, An
     return []
 
 
+def _normalize_hold_checklist(checklist: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized = []
+    for index, item in enumerate(checklist, start=1):
+        question = item.get("question") if isinstance(item, dict) else None
+        if not question:
+            continue
+        normalized.append(
+            {
+                "id": str(item.get("id") or f"hold-{index}"),
+                "question": str(question),
+                "blocks_bid_if_no": bool(item.get("blocks_bid_if_no", False)),
+            }
+        )
+    return normalized
+
+
+def _extract_rfq_id(data: Dict[str, Any]) -> str:
+    snapshot = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else {}
+    facts = data.get("key_facts") if isinstance(data.get("key_facts"), dict) else {}
+    rfq = _pick_first(
+        data,
+        [
+            "rfq_number",
+            "solicitation_number",
+        ],
+    )
+    rfq = rfq or _pick_first(facts, ["rfq_number"]) or _pick_first(snapshot, ["rfq_number"])
+    return str(rfq) if rfq else "Unknown RFQ"
+
+
+def _format_hold_question_message(session: Dict[str, Any], item: Dict[str, Any]) -> str:
+    checklist = session.get("checklist", [])
+    current_index = session.get("current_index", 0)
+    total = len(checklist)
+    prefix = f"📝 HOLD checklist ({current_index + 1}/{total})"
+    question = item.get("question", "Unspecified requirement")
+    blocks = "⚠️ Blocks bid if NO." if item.get("blocks_bid_if_no") else "Advisory item."
+    return f"{prefix}\n{question}\n{blocks}"
+
+
+def _format_hold_summary(session: Dict[str, Any]) -> str:
+    rfq_id = session.get("rfq_id", "Unknown RFQ")
+    checklist = session.get("checklist", [])
+    answers = session.get("answers", {})
+    lines = [f"✅ HOLD checklist complete for {rfq_id}."]
+    for index, item in enumerate(checklist, start=1):
+        answer = answers.get(item.get("id"), "unanswered").upper()
+        suffix = " (BLOCKS BID)" if answer == "NO" and item.get("blocks_bid_if_no") else ""
+        lines.append(f"{index}. {item.get('question', 'Unspecified')} — {answer}{suffix}")
+    return "\n".join(lines)
+
+
+class HoldResolutionView(ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=900)
+        self.user_id = user_id
+
+    async def _handle_answer(self, interaction: discord.Interaction, answer: str) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "⚠️ Only the original requester can answer this checklist.",
+                ephemeral=True,
+            )
+            return
+
+        session = user_sessions.get(self.user_id)
+        if not session:
+            await interaction.response.send_message(
+                "⚠️ This checklist session has expired.",
+                ephemeral=True,
+            )
+            return
+
+        checklist = session.get("checklist", [])
+        current_index = session.get("current_index", 0)
+        if current_index >= len(checklist):
+            await interaction.response.send_message(
+                "✅ Checklist already completed.",
+                ephemeral=True,
+            )
+            return
+
+        current_item = checklist[current_index]
+        session["answers"][current_item["id"]] = answer
+        session["current_index"] = current_index + 1
+
+        if session["current_index"] >= len(checklist):
+            summary = _format_hold_summary(session)
+            user_sessions.pop(self.user_id, None)
+            await interaction.response.edit_message(content="✅ Recorded. Checklist complete.", view=None)
+            await interaction.followup.send(summary)
+            return
+
+        next_item = checklist[session["current_index"]]
+        await interaction.response.edit_message(
+            content=_format_hold_question_message(session, next_item),
+            view=self,
+        )
+
+    @ui.button(label="YES", style=discord.ButtonStyle.success)
+    async def yes_button(self, interaction: discord.Interaction, _: ui.Button) -> None:
+        await self._handle_answer(interaction, "YES")
+
+    @ui.button(label="NO", style=discord.ButtonStyle.danger)
+    async def no_button(self, interaction: discord.Interaction, _: ui.Button) -> None:
+        await self._handle_answer(interaction, "NO")
+
+
 def format_decision_embed(data: Dict[str, Any], filename: str) -> discord.Embed:
     decision = _derive_decision(data)
     rationale = _derive_rationale(data)
