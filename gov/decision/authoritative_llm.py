@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -198,6 +199,19 @@ def _apply_schema_defaults(raw: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def _upload_with_retry(client: Any, pdf_file: Any, retries: int = 3, backoff: int = 2) -> Any:
+    from openai import InternalServerError
+
+    for attempt in range(retries):
+        try:
+            pdf_file.seek(0)
+            return client.files.create(file=pdf_file, purpose="assistants")
+        except InternalServerError:
+            if attempt == retries - 1:
+                raise
+            time.sleep(backoff**attempt)
+
+
 def run_authoritative_llm(pdf_path: Path, model: str = "gpt-4.1") -> Dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -214,7 +228,7 @@ def run_authoritative_llm(pdf_path: Path, model: str = "gpt-4.1") -> Dict[str, A
     client = OpenAI(api_key=api_key)
 
     with pdf_path.open("rb") as pdf_file:
-        uploaded_file = client.files.create(file=pdf_file, purpose="assistants")
+        uploaded_file = _upload_with_retry(client, pdf_file)
 
     response = client.responses.create(
         model=model,
