@@ -71,9 +71,8 @@ def build_hold_resolution_checklist_for_authoritative(result: Dict[str, Any]) ->
         _append_unique(
             checklist,
             {
-                "id": "sprs_score",
                 "question": "Do you currently have a valid NIST SP 800-171 assessment posted in SPRS?",
-                "blocking": True,
+                "blocks_bid_if_no": True,
                 "clause": "DFARS 252.204-7019 / 7020",
             },
         )
@@ -82,9 +81,8 @@ def build_hold_resolution_checklist_for_authoritative(result: Dict[str, Any]) ->
         _append_unique(
             checklist,
             {
-                "id": "cmmc_l2",
                 "question": "Have you completed a CMMC Level 2 self-assessment?",
-                "blocking": True,
+                "blocks_bid_if_no": True,
                 "clause": "CMMC Level 2 / RD004",
             },
         )
@@ -93,9 +91,8 @@ def build_hold_resolution_checklist_for_authoritative(result: Dict[str, Any]) ->
         _append_unique(
             checklist,
             {
-                "id": "jcp",
                 "question": "Is your organization JCP certified for export-controlled technical data?",
-                "blocking": True,
+                "blocks_bid_if_no": True,
                 "clause": "ITAR / Export Control",
             },
         )
@@ -104,9 +101,8 @@ def build_hold_resolution_checklist_for_authoritative(result: Dict[str, Any]) ->
         _append_unique(
             checklist,
             {
-                "id": "packaging",
                 "question": "Can your supplier comply with MIL-STD-129 and DLA packaging requirements?",
-                "blocking": False,
+                "blocks_bid_if_no": False,
             },
         )
 
@@ -117,9 +113,8 @@ def build_hold_resolution_checklist_for_authoritative(result: Dict[str, Any]) ->
         _append_unique(
             checklist,
             {
-                "id": "fdt",
                 "question": "Do you understand and have experience with FOB Origin under FDT?",
-                "blocking": False,
+                "blocks_bid_if_no": False,
             },
         )
 
@@ -127,9 +122,8 @@ def build_hold_resolution_checklist_for_authoritative(result: Dict[str, Any]) ->
         _append_unique(
             checklist,
             {
-                "id": "hazmat",
                 "question": "Can you provide SDS/MSDS documentation for hazardous material handling?",
-                "blocking": False,
+                "blocks_bid_if_no": False,
             },
         )
 
@@ -148,18 +142,16 @@ def build_hold_resolution_checklist_for_engine(
         _append_unique(
             checklist,
             {
-                "id": "sprs_score",
                 "question": "Do you currently have a valid NIST SP 800-171 assessment posted in SPRS?",
-                "blocking": True,
+                "blocks_bid_if_no": True,
                 "clause": "DFARS 252.204-7019 / 7020",
             },
         )
         _append_unique(
             checklist,
             {
-                "id": "cmmc_l2",
                 "question": "Have you completed a CMMC Level 2 self-assessment?",
-                "blocking": True,
+                "blocks_bid_if_no": True,
                 "clause": "CMMC Level 2 / RD004",
             },
         )
@@ -168,9 +160,8 @@ def build_hold_resolution_checklist_for_engine(
         _append_unique(
             checklist,
             {
-                "id": "packaging",
                 "question": "Can your supplier comply with MIL-STD-129 and DLA packaging requirements?",
-                "blocking": False,
+                "blocks_bid_if_no": False,
             },
         )
 
@@ -178,9 +169,8 @@ def build_hold_resolution_checklist_for_engine(
         _append_unique(
             checklist,
             {
-                "id": "fdt",
                 "question": "Do you understand and have experience with FOB Origin under FDT?",
-                "blocking": False,
+                "blocks_bid_if_no": False,
             },
         )
 
@@ -188,9 +178,8 @@ def build_hold_resolution_checklist_for_engine(
         _append_unique(
             checklist,
             {
-                "id": "hazmat",
                 "question": "Can you provide SDS/MSDS documentation for hazardous material handling?",
-                "blocking": False,
+                "blocks_bid_if_no": False,
             },
         )
 
