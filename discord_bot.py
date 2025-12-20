@@ -97,11 +97,19 @@ def _derive_risks(data: Dict[str, Any]) -> List[str]:
     return []
 
 
+def _derive_hold_resolution_checklist(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    checklist = data.get("hold_resolution_checklist")
+    if isinstance(checklist, list):
+        return [item for item in checklist if isinstance(item, dict)]
+    return []
+
+
 def format_decision_embed(data: Dict[str, Any], filename: str) -> discord.Embed:
     decision = _derive_decision(data)
     rationale = _derive_rationale(data)
     facts = _derive_key_facts(data)
     risks = _derive_risks(data)
+    checklist = _derive_hold_resolution_checklist(data)
 
     color = {
         "BID": 0x2ECC71,
@@ -135,6 +143,19 @@ def format_decision_embed(data: Dict[str, Any], filename: str) -> discord.Embed:
         )
     else:
         embed.add_field(name="⚠️ Compliance Risks", value="No risks reported.", inline=False)
+
+    if decision == "HOLD" and checklist:
+        formatted = []
+        for index, item in enumerate(checklist[:5], start=1):
+            question = item.get("question", "Unspecified requirement")
+            blocks = item.get("blocks_bid_if_no")
+            suffix = " (blocks bid if NO)" if blocks else ""
+            formatted.append(f"{index}. {question}{suffix}")
+        embed.add_field(
+            name="🔁 HOLD Resolution Checklist",
+            value="\n".join(formatted),
+            inline=False,
+        )
 
     embed.set_footer(text="Gov Contracting Decision Engine")
     return embed
