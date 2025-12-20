@@ -11,6 +11,9 @@ import discord
 from discord import ui
 from dotenv import load_dotenv
 
+from gov.discord.checklist_state import CHECKLIST_STATE
+from gov.discord.document_actions import run_document_generation
+
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -21,6 +24,7 @@ intents.message_content = True
 intents.messages = True
 
 client = discord.Client(intents=intents)
+client.cache = {"rfqs": {}, "supplier": {}, "pricing": {}}
 
 user_sessions: Dict[int, Dict[str, Any]] = {}
 
@@ -216,6 +220,32 @@ class HoldResolutionView(ui.View):
         await self._handle_answer(interaction, "NO")
 
 
+class DocumentChecklist(ui.View):
+    def __init__(self, rfq_id: str):
+        super().__init__(timeout=300)
+        self.rfq_id = rfq_id
+
+    @ui.button(label="Generate Quote PDF", style=discord.ButtonStyle.primary)
+    async def quote(self, interaction: discord.Interaction, _: ui.Button) -> None:
+        CHECKLIST_STATE.setdefault(self.rfq_id, {})["quote"] = True
+        await interaction.response.send_message(
+            "✅ Quote generation selected",
+            ephemeral=True,
+        )
+
+    @ui.button(label="Generate Traceability PDF", style=discord.ButtonStyle.primary)
+    async def trace(self, interaction: discord.Interaction, _: ui.Button) -> None:
+        CHECKLIST_STATE.setdefault(self.rfq_id, {})["traceability"] = True
+        await interaction.response.send_message(
+            "✅ Traceability generation selected",
+            ephemeral=True,
+        )
+
+    @ui.button(label="Run Selected Tasks", style=discord.ButtonStyle.success)
+    async def run(self, interaction: discord.Interaction, _: ui.Button) -> None:
+        await run_document_generation(interaction, self.rfq_id)
+
+
 def format_decision_embed(data: Dict[str, Any], filename: str) -> discord.Embed:
     decision = _derive_decision(data)
     rationale = _derive_rationale(data)
@@ -341,11 +371,17 @@ async def on_message(message: discord.Message):
 
     try:
         data = await asyncio.to_thread(run_analysis, pdf_path)
-        await message.channel.send(embed=format_decision_embed(data, attachment.filename))
+        rfq_id = _extract_rfq_id(data)
+        client.cache["rfqs"][rfq_id] = data
+        await message.channel.send(
+            content="Do you want to generate Quote & Traceability documents?",
+            embed=format_decision_embed(data, attachment.filename),
+            view=DocumentChecklist(rfq_id),
+        )
         checklist = _normalize_hold_checklist(_derive_hold_resolution_checklist(data))
         if _derive_decision(data) == "HOLD" and checklist:
             user_sessions[message.author.id] = {
-                "rfq_id": _extract_rfq_id(data),
+                "rfq_id": rfq_id,
                 "checklist": checklist,
                 "current_index": 0,
                 "answers": {},
