@@ -11,6 +11,35 @@ def _ensure_dirs():
     (OUTPUT_BASE / "traceability").mkdir(parents=True, exist_ok=True)
 
 
+def _parse_money(value, default=0.0):
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.strip().replace("$", "").replace(",", "")
+        if cleaned:
+            try:
+                return float(cleaned)
+            except ValueError:
+                return default
+    return default
+
+
+def generate_documents(rfq, supplier, pricing):
+    pricing_payload = {
+        "quantity": pricing.get("quantity", rfq.get("quantity", 1)),
+        "unit_price": _parse_money(pricing.get("unit_price")),
+        "total_price": _parse_money(pricing.get("total_price")),
+        "delivery_days": pricing.get("delivery_days", pricing.get("days_aro", 0)),
+    }
+
+    return {
+        "quote_pdf": generate_quote_pdf(rfq, supplier, pricing_payload),
+        "traceability_pdf": generate_traceability_pdf(rfq, supplier),
+    }
+
+
 def generate_quote_pdf(rfq, supplier, pricing):
     _ensure_dirs()
 
