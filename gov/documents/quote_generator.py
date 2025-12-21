@@ -43,7 +43,7 @@ def generate_documents(rfq, supplier, pricing):
 def generate_quote_pdf(rfq, supplier, pricing):
     _ensure_dirs()
 
-    rfq_id = rfq["rfq_number"]
+    rfq_id = _resolve_rfq_id(rfq)
     output_path = OUTPUT_BASE / "quotes" / f"{rfq_id}.pdf"
 
     c = canvas.Canvas(str(output_path), pagesize=LETTER)
@@ -71,7 +71,7 @@ def generate_quote_pdf(rfq, supplier, pricing):
 def generate_traceability_pdf(rfq, supplier):
     _ensure_dirs()
 
-    rfq_id = rfq["rfq_number"]
+    rfq_id = _resolve_rfq_id(rfq)
     output_path = OUTPUT_BASE / "traceability" / f"{rfq_id}.pdf"
 
     c = canvas.Canvas(str(output_path), pagesize=LETTER)
