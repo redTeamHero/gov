@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import json
+import logging
+
 import discord
 
 from gov.discord.checklist_state import CHECKLIST_STATE
 from gov.documents.quote_pdf import generate_quote_pdf
 from gov.documents.traceability_pdf import generate_traceability_pdf
 from gov.supply_chain.qpl_validator import validate_supplier_qpl
+
+log = logging.getLogger(__name__)
 
 
 async def run_document_generation(interaction: discord.Interaction, rfq_id: str) -> None:
@@ -33,6 +38,9 @@ async def run_document_generation(interaction: discord.Interaction, rfq_id: str)
     rfq_payload = rfq or {}
     supplier_payload = supplier or {}
     pricing_payload = pricing or {}
+
+    log.warning("rfq_payload keys=%s", list(rfq_payload.keys()))
+    log.warning("key_facts=%s", json.dumps(rfq_payload.get("key_facts", {}), indent=2)[:2000])
 
     validation = validate_supplier_qpl(rfq_payload, supplier_payload)
     if validation["status"] == "FAIL":
