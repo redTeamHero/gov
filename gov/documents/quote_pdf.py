@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any, Dict
 
 from gov.documents.base import create_canvas, ensure_output_dir, line_writer
 from gov.documents.errors import PDFGenerationError
 from gov.documents.rfq_schema import resolve_rfq_id
-
-_LOGGER = logging.getLogger(__name__)
 
 
 def _parse_money(value: Any, default: float = 0.0) -> float:
@@ -40,17 +37,7 @@ def _build_pricing_payload(rfq: Dict[str, Any], pricing: Dict[str, Any]) -> Dict
 def generate_quote_pdf(rfq: Dict[str, Any], supplier: Dict[str, Any], pricing: Dict[str, Any]) -> str:
     """Generate a quote PDF and return its file path."""
     try:
-        if rfq.get("rfq_id"):
-            rfq_id = str(rfq.get("rfq_id"))
-        else:
-            rfq_id = resolve_rfq_id(rfq)
-            rfq["rfq_id"] = rfq_id
-            if rfq_id == "RFQ-UNKNOWN":
-                rfq["rfq_id_confidence"] = "missing"
-                _LOGGER.warning("RFQ identifier missing; using fallback RFQ-UNKNOWN.")
-            else:
-                rfq["rfq_id_confidence"] = "inferred"
-                _LOGGER.warning("RFQ identifier inferred from payload keys.")
+        rfq_id = resolve_rfq_id(rfq)
         output_path = _quote_output_path(rfq_id)
         pricing_payload = _build_pricing_payload(rfq, pricing)
 

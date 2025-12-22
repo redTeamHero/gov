@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import logging
-
 
 RFQ_ID_KEYS = (
-    "rfq_id",
     "rfq_number",
+    "rfq_id",
     "solicitation_number",
     "solicitation",
     "document_id",
 )
-
-_LOGGER = logging.getLogger(__name__)
 
 
 def resolve_rfq_id(rfq: dict) -> str:
@@ -24,14 +20,16 @@ def resolve_rfq_id(rfq: dict) -> str:
 
     Returns:
         The resolved RFQ identifier as a string.
+
+    Raises:
+        KeyError: When no supported identifier keys are present.
     """
     for key in RFQ_ID_KEYS:
         if key in rfq:
             value = rfq.get(key)
             if value not in (None, ""):
                 return str(value)
-    _LOGGER.warning(
-        "RFQ identifier not found in payload. Falling back to RFQ-UNKNOWN.",
-        extra={"rfq_keys": sorted(rfq.keys())},
+    raise KeyError(
+        "RFQ identifier not found. Expected one of: "
+        "rfq_number, rfq_id, solicitation_number, solicitation, document_id."
     )
-    return "RFQ-UNKNOWN"
