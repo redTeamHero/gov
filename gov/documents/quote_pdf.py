@@ -38,12 +38,6 @@ def generate_quote_pdf(rfq: Dict[str, Any], supplier: Dict[str, Any], pricing: D
     """Generate a quote PDF and return its file path."""
     try:
         rfq_id = resolve_rfq_id(rfq)
-        if not rfq.get("rfq_id"):
-            rfq["rfq_id"] = rfq_id
-            if rfq_id == "RFQ-UNKNOWN":
-                rfq["rfq_id_confidence"] = "missing"
-            else:
-                rfq["rfq_id_confidence"] = "inferred"
         output_path = _quote_output_path(rfq_id)
         pricing_payload = _build_pricing_payload(rfq, pricing)
 
