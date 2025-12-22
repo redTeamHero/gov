@@ -3,7 +3,8 @@ from __future__ import annotations
 import discord
 
 from gov.discord.checklist_state import CHECKLIST_STATE
-from gov.documents.quote_generator import generate_quote_pdf, generate_traceability_pdf
+from gov.documents.quote_pdf import generate_quote_pdf
+from gov.documents.traceability_pdf import generate_traceability_pdf
 from gov.supply_chain.qpl_validator import validate_supplier_qpl
 
 
