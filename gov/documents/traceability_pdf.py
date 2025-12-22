@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from gov.documents.base import create_canvas, ensure_output_dir, line_writer
 from gov.documents.errors import PDFGenerationError
+from gov.documents.rfq_normalize import normalize_rfq_for_docs
 from gov.documents.rfq_schema import resolve_rfq_id
 
 
@@ -19,6 +20,7 @@ CHAIN_OF_CUSTODY_TEXT = (
 def generate_traceability_pdf(rfq: Dict[str, Any], supplier: Dict[str, Any]) -> str:
     """Generate a traceability PDF and return its file path."""
     try:
+        rfq = normalize_rfq_for_docs(rfq)
         rfq_id = resolve_rfq_id(rfq)
         output_path = _traceability_output_path(rfq_id)
 

@@ -128,6 +128,16 @@ def _first_match(text: str, patterns: Sequence[str]) -> Optional[str]:
     return None
 
 
+def extract_request_no(full_text: str) -> str | None:
+    m = re.search(r"(?im)^\s*1\.\s*REQUEST\s*NO\.?\s*[:\-]?\s*([A-Z0-9\-]+)\s*$", full_text)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"(?ims)^\s*1\.\s*REQUEST\s*NO\.?\s*$\s*^([A-Z0-9\-]+)\s*$", full_text)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
 def _extract_request_number(text: str) -> Optional[str]:
     match = re.search(
         r"1\.?\s*REQUEST\s+NO\.?[:#\s]*([A-Z0-9-]+)",
@@ -192,7 +202,7 @@ def _combine_delivery_fields(primary: str, need_ship: Optional[str], rdd: Option
 
 
 def parse_snapshot(text: str) -> Snapshot:
-    extracted_request_no = _extract_request_number(text)
+    extracted_request_no = extract_request_no(text) or _extract_request_number(text)
     rfq_number = (
         extracted_request_no
         or _first_match(
