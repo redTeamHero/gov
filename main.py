@@ -31,6 +31,8 @@ from gov.decision import (
 @dataclass
 class Snapshot:
     rfq_number: str = "Not stated in RFQ"
+    rfq_id: str = "RFQ-UNKNOWN"
+    rfq_id_confidence: str = "missing"
     nsn: str = "Not stated in RFQ"
     quantity: str = "Not stated in RFQ"
     delivery_requirement: str = "Not stated in RFQ"
@@ -126,6 +128,17 @@ def _first_match(text: str, patterns: Sequence[str]) -> Optional[str]:
     return None
 
 
+def _extract_request_number(text: str) -> Optional[str]:
+    match = re.search(
+        r"1\.?\s*REQUEST\s+NO\.?[:#\s]*([A-Z0-9-]+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).strip().strip(" .:-")
+    return None
+
+
 def _normalize_set_aside(raw_value: str, text: str) -> str:
     normalized = raw_value
     if re.search(r"cert\.?\s*for\s*nat\.?\s*def", text, re.IGNORECASE):
@@ -179,13 +192,25 @@ def _combine_delivery_fields(primary: str, need_ship: Optional[str], rdd: Option
 
 
 def parse_snapshot(text: str) -> Snapshot:
-    rfq_number = _first_match(
-        text,
-        [
-            r"(?:Solicitation|RFQ|Request for Quotation)[:#\s]+([A-Z0-9-]{5,})",
-            r"\b(SPE\w+-\d{2}-[A-Z]-\d{4,})\b",
-        ],
-    ) or "Not stated in RFQ"
+    extracted_request_no = _extract_request_number(text)
+    rfq_number = (
+        extracted_request_no
+        or _first_match(
+            text,
+            [
+                r"(?:Solicitation|RFQ|Request for Quotation)[:#\s]+([A-Z0-9-]{5,})",
+                r"\b(SPE\w+-\d{2}-[A-Z]-\d{4,})\b",
+            ],
+        )
+        or "Not stated in RFQ"
+    )
+    if extracted_request_no:
+        rfq_id_confidence = "extracted"
+    elif rfq_number != "Not stated in RFQ":
+        rfq_id_confidence = "inferred"
+    else:
+        rfq_id_confidence = "missing"
+    rfq_id = rfq_number if rfq_number != "Not stated in RFQ" else "RFQ-UNKNOWN"
 
     nsn = _first_match(
         text,
@@ -265,6 +290,8 @@ def parse_snapshot(text: str) -> Snapshot:
 
     return Snapshot(
         rfq_number=rfq_number,
+        rfq_id=rfq_id,
+        rfq_id_confidence=rfq_id_confidence,
         nsn=nsn,
         quantity=quantity,
         delivery_requirement=delivery_requirement,
