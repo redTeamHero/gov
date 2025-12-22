@@ -11,27 +11,6 @@ def _ensure_dirs():
     (OUTPUT_BASE / "traceability").mkdir(parents=True, exist_ok=True)
 
 
-def _resolve_rfq_id(rfq: dict) -> str:
-    """
-    Deterministically resolve RFQ identifier from parsed RFQ payload.
-    Raises KeyError if not found (auditable failure).
-    """
-    for key in (
-        "rfq_number",
-        "rfq_id",
-        "solicitation_number",
-        "solicitation",
-        "document_id",
-    ):
-        if key in rfq and rfq[key]:
-            return str(rfq[key])
-
-    raise KeyError(
-        "RFQ identifier not found. Expected one of: "
-        "rfq_number, rfq_id, solicitation_number, solicitation, document_id"
-    )
-
-
 def _parse_money(value, default=0.0):
     if value is None:
         return default
